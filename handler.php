@@ -18,10 +18,6 @@ class UploadHandler {
 
     protected $uploadName;
 
-    function __construct(){
-        $this->sizeLimit = $this->toBytes(ini_get('upload_max_filesize'));
-    }
-
     /**
      * Get the original filename
      */
@@ -31,6 +27,16 @@ class UploadHandler {
 
         if (isset($_FILES[$this->inputName]))
             return $_FILES[$this->inputName]['name'];
+    }
+
+    public function getInitialFiles() {
+        $initialFiles = array();
+
+        for ($i = 0; $i < 5000; $i++) {
+            array_push($initialFiles, array("name" => "name" + $i, uuid => "uuid" + $i, thumbnailUrl => "/test/dev/handlers/vendor/fineuploader/php-traditional-server/fu.png"));
+        }
+
+        return $initialFiles;
     }
 
     /**
@@ -46,13 +52,13 @@ class UploadHandler {
         $targetFolder = $this->chunksFolder.DIRECTORY_SEPARATOR.$uuid;
         $totalParts = isset($_REQUEST['qqtotalparts']) ? (int)$_REQUEST['qqtotalparts'] : 1;
 
-        $target = join(DIRECTORY_SEPARATOR, array($uploadDirectory, $uuid, $name));
+        $targetPath = join(DIRECTORY_SEPARATOR, array($uploadDirectory, $uuid, $name));
         $this->uploadName = $name;
 
-        if (!file_exists($target)){
-            mkdir(dirname($target));
+        if (!file_exists($targetPath)){
+            mkdir(dirname($targetPath));
         }
-        $target = fopen($target, 'wb');
+        $target = fopen($targetPath, 'wb');
 
         for ($i=0; $i<$totalParts; $i++){
             $chunk = fopen($targetFolder.DIRECTORY_SEPARATOR.$i, "rb");
@@ -68,6 +74,12 @@ class UploadHandler {
         }
 
         rmdir($targetFolder);
+
+        if (!is_null($this->sizeLimit) && filesize($targetPath) > $this->sizeLimit) {
+            unlink($targetPath);
+            http_response_code(413);
+            return array("success" => false, "uuid" => $uuid, "preventRetry" => true);
+        }
 
         return array("success" => true, "uuid" => $uuid);
     }
@@ -90,8 +102,8 @@ class UploadHandler {
         // exceed size allowed by server config
         if ($this->toBytes(ini_get('post_max_size')) < $this->sizeLimit ||
             $this->toBytes(ini_get('upload_max_filesize')) < $this->sizeLimit){
-            $size = max(1, $this->sizeLimit / 1024 / 1024) . 'M';
-            return array('error'=>"Server error. Increase post_max_size and upload_max_filesize to ".$size);
+            $neededRequestSize = max(1, $this->sizeLimit / 1024 / 1024) . 'M';
+            return array('error'=>"Server error. Increase post_max_size and upload_max_filesize to ".$neededRequestSize);
         }
 
         if ($this->isInaccessible($uploadDirectory)){
@@ -112,6 +124,9 @@ class UploadHandler {
         // Get size and name
         $file = $_FILES[$this->inputName];
         $size = $file['size'];
+        if (isset($_REQUEST['qqtotalfilesize'])) {
+            $size = $_REQUEST['qqtotalfilesize'];
+        }
 
         if ($name === null){
             $name = $this->getName();
@@ -127,8 +142,8 @@ class UploadHandler {
             return array('error' => 'File is empty.');
         }
 
-        if ($size > $this->sizeLimit){
-            return array('error' => 'File is too large.');
+        if (!is_null($this->sizeLimit) && $size > $this->sizeLimit) {
+            return array('error' => 'File is too large.', 'preventRetry' => true);
         }
 
         // Validate file extension
@@ -170,7 +185,6 @@ class UploadHandler {
         # non-chunked upload
 
             $target = join(DIRECTORY_SEPARATOR, array($uploadDirectory, $uuid, $name));
-            //$target = $this->getUniqueTargetPath($uploadDirectory, $name);
 
             if ($target){
                 $this->uploadName = basename($target);
@@ -207,7 +221,6 @@ class UploadHandler {
 
         $target = join(DIRECTORY_SEPARATOR, array($targetFolder, $uuid));
 
-        // print_r($target);
         if (is_dir($target)){
             $this->removeDir($target);
             return array("success" => true, "uuid" => $uuid);
