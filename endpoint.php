@@ -53,6 +53,16 @@ if ($method == "POST") {
     // Assumes you have a chunking.success.endpoint set to point here with a query parameter of "done".
     // For example: /myserver/handlers/endpoint.php?done
     if (isset($_GET["done"])) {
+
+        // When the uploaded file is smaller than the chunk size, it is uploaded directy
+        // to the "files" folder, even is chunking.mandatory is set to true in the client.
+        $result["success"] = true;
+        $totalParts = isset($_REQUEST['qqtotalparts']) ? (int)$_REQUEST['qqtotalparts'] : 1;
+        if ($totalParts > 1) {
+            // Combine chunks
+            $result = $uploader->combineChunks($filesDir);
+        }
+
         $result = $uploader->combineChunks("files");
     }
     // Handles upload requests
